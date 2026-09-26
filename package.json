@@ -1,0 +1,28 @@
+{
+  "name": "sumcheck",
+  "version": "0.1.0",
+  "description": "Checksum a directory into a manifest, then verify it later. Tells changed from missing from touched, and reads the sha256sum text format.",
+  "license": "MIT",
+  "type": "module",
+  "bin": {
+    "sumcheck": "bin/sumcheck.js"
+  },
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
+  "files": ["bin", "src", "README.md", "LICENSE", "CHANGELOG.md"],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/d20260825613-hub/sumcheck.git"
+  },
+  "scripts": {
+    "start": "node bin/sumcheck.js",
+    "test": "node --test test/manifest.test.js test/verify.test.js test/cli.test.js"
+  },
+  "os": ["win32", "darwin", "linux"],
+  "keywords": ["checksum", "sha256", "hash", "integrity", "verification", "manifest", "cli", "zero-dependencies"]
+}
