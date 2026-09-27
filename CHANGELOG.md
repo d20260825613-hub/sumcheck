@@ -6,6 +6,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- Bad arguments now exit 2 and a failed operation exits 1; the old code 3 is
+  gone, so a script can tell "you typed it wrong" from "the run failed".
+- A mistyped option is answered with a "did you mean" suggestion, and an option
+  that is missing its value says so instead of reading `undefined`.
+- Errors are printed as a message and a hint, never as a stack trace, unless
+  `--debug` or `SUMCHECK_DEBUG=1` asks for one. `--debug` is new.
+
+### Fixed
+
+- `installCliHandlers` was called only from the direct-run block in
+  `src/cli.js`, so it never fired for the installed `sumcheck` command: the bin
+  entry imports the module rather than running it. `bin/sumcheck.js` now installs
+  the handlers itself, so `sumcheck verify big-dir | head` exits quietly instead
+  of printing an EPIPE stack trace and Ctrl-C stops a long hash without a
+  traceback. The configuration moved into an exported `installHandlers()` so both
+  entry points use the same one, and a new test spawns a subprocess that imports
+  `bin/sumcheck.js` the way a command on PATH does — removing the call makes it
+  fail with `sigint=0 pipe=0`.
+
 ## [0.1.0] - 2026-09-26
 
 ### Added

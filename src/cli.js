@@ -13,7 +13,9 @@
 import fsp from 'node:fs/promises';
 import path from 'node:path';
 import process from 'node:process';
+import { pathToFileURL } from 'node:url';
 
+import { UsageError, formatError, installCliHandlers, unknownOptionError } from './cli-kit.js';
 import { collectFiles, hashAll, parseExcludes } from './hash.js';
 import {
   ALGORITHMS,
@@ -22,7 +24,6 @@ import {
   FORMAT_TEXT,
   buildManifest,
   parseManifest,
-  toPosix,
 } from './manifest.js';
 import { STATUS, exitCodeFor, verifyManifest } from './verify.js';
 import { bold, dim, formatBytes, green, red, yellow } from './style.js';
@@ -44,6 +45,7 @@ Options
       --text               write the sha256sum-compatible text format
       --json               machine-readable report (verify)
       --no-extra           do not report files that are not in the manifest
+      --debug              print a stack trace when something fails
   -f, --force              overwrite an existing manifest
   -q, --quiet              only print the summary
   -h, --help               this text
@@ -51,9 +53,8 @@ Options
 
 Exit codes
   0  everything matches
-  1  a file changed or is missing
-  2  the tree has files the manifest does not list
-  3  bad arguments or an unreadable manifest
+  1  a file changed or is missing, or the operation could not be completed
+  2  bad arguments, or the tree has files the manifest does not list
 
 Examples
   sumcheck generate ./backup
@@ -63,9 +64,51 @@ Examples
   sumcheck verify . -m SHA256SUMS --algorithm sha256
 `;
 
-function fail(message, code = 3) {
+/**
+ * Every long option this command line accepts, for the "did you mean"
+ * suggestion. Kept next to the parser so the two cannot drift apart unnoticed.
+ */
+export const OPTION_NAMES = [
+  'manifest',
+  'algorithm',
+  'exclude',
+  'text',
+  'json',
+  'no-extra',
+  'force',
+  'quiet',
+  'debug',
+  'help',
+  'version',
+];
+
+/**
+ * Report a problem and return the exit code.
+ *
+ * 2 is "you asked for something impossible" and 1 is "the operation failed".
+ * Keeping the two apart is the only way a script can tell a typo from a tree
+ * that no longer matches, and mixing them is how a caller ends up retrying
+ * something that can never work.
+ */
+function fail(message, code = 1) {
   process.stderr.write(`sumcheck: ${message}\n`);
   return code;
+}
+
+/** Shorthand for the argument-shaped failures. */
+function failUsageMessage(message) {
+  return fail(message, 2);
+}
+
+/** Print a usage error the same way everywhere: message, hint, then nothing. */
+function failUsage(error) {
+  process.stderr.write(formatError(error, { tool: 'sumcheck', usage: () => USAGE, debug: isDebug() }));
+  return error.code ?? 2;
+}
+
+/** `--debug` anywhere in argv turns stack traces on. Read lazily, not cached. */
+function isDebug() {
+  return process.argv.includes('--debug') || process.env.SUMCHECK_DEBUG === '1';
 }
 
 function parseArgs(argv, spec = {}) {
@@ -75,20 +118,38 @@ function parseArgs(argv, spec = {}) {
     const token = argv[i];
     const eq = token.indexOf('=');
     const inline = eq > 1 && token.startsWith('--') ? token.slice(eq + 1) : null;
-    const take = () => (inline !== null ? inline : argv[++i]);
+    // An option whose value is the last token must say so, rather than reading
+    // `undefined` and failing later somewhere far less obvious.
+    const take = (name) => {
+      const value = inline !== null ? inline : argv[i + 1];
+      if (value === undefined) {
+        return { error: new UsageError(`${name} needs a value`, { hint: `for example ${name} <value>` }) };
+      }
+      if (inline === null) i += 1;
+      return { value };
+    };
     switch (token.split('=')[0]) {
       case '-m':
-      case '--manifest':
-        values.manifest = take();
+      case '--manifest': {
+        const taken = take('--manifest');
+        if (taken.error) return taken;
+        values.manifest = taken.value;
         break;
+      }
       case '-a':
-      case '--algorithm':
-        values.algorithm = String(take()).toLowerCase();
+      case '--algorithm': {
+        const taken = take('--algorithm');
+        if (taken.error) return taken;
+        values.algorithm = String(taken.value).toLowerCase();
         break;
+      }
       case '-x':
-      case '--exclude':
-        values.exclude.push(take());
+      case '--exclude': {
+        const taken = take('--exclude');
+        if (taken.error) return taken;
+        values.exclude.push(taken.value);
         break;
+      }
       case '--text':
         values.format = FORMAT_TEXT;
         break;
@@ -97,6 +158,9 @@ function parseArgs(argv, spec = {}) {
         break;
       case '--no-extra':
         values.reportExtra = false;
+        break;
+      case '--debug':
+        values.debug = true;
         break;
       case '-f':
       case '--force':
@@ -111,7 +175,9 @@ function parseArgs(argv, spec = {}) {
           positional.push(...argv.slice(i + 1));
           return { values, positional };
         }
-        if (token.startsWith('-') && token !== '-') return { error: `unknown option: ${token}` };
+        // A mistyped flag is the most common way to get here, so answer it with
+        // the option that was probably meant instead of a bare "unknown option".
+        if (token.startsWith('-') && token !== '-') return { error: unknownOptionError(token, OPTION_NAMES) };
         positional.push(token);
     }
   }
@@ -131,12 +197,16 @@ function progressLine(enabled, label) {
 
 async function commandGenerate(argv) {
   const parsed = parseArgs(argv);
-  if (parsed.error) return fail(parsed.error);
+  if (parsed.error) return failUsage(parsed.error);
   const { values, positional } = parsed;
   const root = positional[0] ?? '.';
 
   if (!ALGORITHMS.includes(values.algorithm)) {
-    return fail(`unknown algorithm: ${values.algorithm} (expected ${ALGORITHMS.join(', ')})`);
+    return failUsage(
+      new UsageError(`unknown algorithm: ${values.algorithm}`, {
+        hint: `the algorithms are ${ALGORITHMS.join(', ')}`,
+      }),
+    );
   }
 
   try {
@@ -190,7 +260,7 @@ async function commandGenerate(argv) {
 
 async function commandVerify(argv) {
   const parsed = parseArgs(argv, { reportExtra: true });
-  if (parsed.error) return fail(parsed.error);
+  if (parsed.error) return failUsage(parsed.error);
   const { values, positional } = parsed;
   const root = positional[0] ?? '.';
 
@@ -202,7 +272,11 @@ async function commandVerify(argv) {
   }
 
   if (values.algorithm && !ALGORITHMS.includes(values.algorithm)) {
-    return fail(`unknown algorithm: ${values.algorithm}`);
+    return failUsage(
+      new UsageError(`unknown algorithm: ${values.algorithm}`, {
+        hint: `the algorithms are ${ALGORITHMS.join(', ')}`,
+      }),
+    );
   }
 
   // The manifest may not name an algorithm (a bare sha256sum file does not
@@ -289,9 +363,9 @@ async function commandVerify(argv) {
 
 async function commandMerge(argv) {
   const parsed = parseArgs(argv);
-  if (parsed.error) return fail(parsed.error);
+  if (parsed.error) return failUsage(parsed.error);
   const { values, positional } = parsed;
-  if (positional.length < 2) return fail('merge needs at least two manifests');
+  if (positional.length < 2) return failUsageMessage('merge needs at least two manifests');
 
   const merged = new Map();
   let algorithm = null;
@@ -345,10 +419,29 @@ async function commandMerge(argv) {
 }
 
 /**
- * @param {string[]} argv
+ * Run the CLI and resolve to an exit code.
+ *
+ * Split out from `dispatch` so tests can drive it in-process without spawning a
+ * child, and so every escaping error is reported in one place.
+ *
+ * A UsageError that reaches here is printed as a message rather than a stack
+ * trace, and its own `code` becomes the exit status. That keeps "you typed it
+ * wrong" (2) separate from "the operation failed" (1), which a script can act
+ * on.
+ *
+ * @param {string[]} argv arguments after the script name
  * @returns {Promise<number>} exit code
  */
 export async function run(argv) {
+  try {
+    return await dispatch(argv);
+  } catch (error) {
+    process.stderr.write(formatError(error, { tool: 'sumcheck', usage: () => USAGE, debug: isDebug() }));
+    return error instanceof UsageError ? (error.code ?? 2) : 1;
+  }
+}
+
+async function dispatch(argv) {
   if (argv.length === 0 || argv[0] === '-h' || argv[0] === '--help' || argv[0] === 'help') {
     process.stdout.write(USAGE);
     return 0;
@@ -368,18 +461,44 @@ export async function run(argv) {
     case 'merge':
       return commandMerge(rest);
     default:
-      return fail(`unknown command: ${command}. Try "sumcheck --help"`);
+      return failUsage(
+        new UsageError(`unknown command: ${command}`, {
+          hint: 'the commands are generate, verify and merge',
+        }),
+      );
   }
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${toPosix(process.argv[1])}`).href) {
+/**
+ * Install the process-level handlers.
+ *
+ * Exported because `bin/sumcheck.js` is the entry point that actually runs when
+ * the tool is on PATH, and it imports this module rather than running it, so the
+ * direct-run block below never fires there. Both call sites share this one
+ * configuration instead of repeating it. Calling it twice is harmless:
+ * `installCliHandlers` is idempotent.
+ *
+ * Without it, `sumcheck verify x | head` prints a node EPIPE stack trace, and
+ * Ctrl-C during a long hash reports an exception instead of stopping quietly.
+ */
+export function installHandlers() {
+  return installCliHandlers({ tool: 'sumcheck', usage: () => USAGE, debug: isDebug });
+}
+
+// Only run when invoked directly, so importing this module in a test is safe.
+// `pathToFileURL` is what makes the check survive a path containing `#` or `%`,
+// which hand-building a `file://` string gets wrong.
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
+  // Installed before anything else runs.
+  installHandlers();
+
   run(process.argv.slice(2)).then(
     (code) => {
       process.exitCode = code;
     },
     (error) => {
-      process.stderr.write(`sumcheck: ${error?.stack ?? error}\n`);
-      process.exitCode = 3;
+      process.stderr.write(formatError(error, { tool: 'sumcheck', usage: () => USAGE, debug: isDebug() }));
+      process.exitCode = error instanceof UsageError ? (error.code ?? 2) : 1;
     },
   );
 }

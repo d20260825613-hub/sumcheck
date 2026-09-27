@@ -21,7 +21,7 @@
   },
   "scripts": {
     "start": "node bin/sumcheck.js",
-    "test": "node --test test/manifest.test.js test/verify.test.js test/cli.test.js"
+    "test": "node --test test/manifest.test.js test/verify.test.js test/cli.test.js test/cli-kit.test.js"
   },
   "os": ["win32", "darwin", "linux"],
   "keywords": ["checksum", "sha256", "hash", "integrity", "verification", "manifest", "cli", "zero-dependencies"]

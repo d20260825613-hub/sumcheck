@@ -82,9 +82,12 @@ Exit codes:
 | Code | Meaning |
 | --- | --- |
 | 0 | everything matches |
-| 1 | a file changed or is missing |
-| 2 | the tree has files the manifest does not list |
-| 3 | bad arguments or an unreadable manifest |
+| 1 | a file changed or is missing, or the run could not be completed |
+| 2 | bad arguments, or the tree has files the manifest does not list |
+
+A mistyped option is answered with the option that was probably meant, and a
+usage error never prints a stack trace unless `--debug` (or `SUMCHECK_DEBUG=1`)
+asks for one.
 
 `--json` prints the full report instead of the human one.
 
@@ -160,9 +163,9 @@ of the content, and the content is what it was.
 npm test
 ```
 
-32 tests, most of them about the distinctions: changed vs missing vs extra vs
+39 tests, most of them about the distinctions: changed vs missing vs extra vs
 touched, a manifest path that tries to escape the root, a malformed line, a
-conflicting merge.
+conflicting merge, a mistyped option and the exit code it produces.
 
 ## License
 

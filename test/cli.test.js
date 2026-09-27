@@ -74,7 +74,7 @@ test('generate refuses to overwrite an existing manifest without --force', async
   await fs.writeFile(manifest, 'existing');
 
   const blocked = await runCli(['generate', root, '-m', manifest]);
-  assert.equal(blocked.code, 3);
+  assert.equal(blocked.code, 1, blocked.stderr);
   assert.match(blocked.stderr, /already exists/);
   assert.equal(await fs.readFile(manifest, 'utf8'), 'existing');
 
@@ -127,7 +127,7 @@ test('a bare sha256sum manifest verifies when the algorithm is given', async () 
 });
 
 test('bad arguments are refused with a clear message', async () => {
-  assert.equal((await runCli(['frobnicate'])).code, 3);
+  assert.equal((await runCli(['frobnicate'])).code, 2, 'a bad argument is a usage error, not a failed run');
   assert.match((await runCli(['generate', '.', '-a', 'crc32'])).stderr, /unknown algorithm/);
   assert.match((await runCli(['verify', '.', '-m', 'does-not-exist.json'])).stderr, /cannot read/);
   assert.match((await runCli(['generate', '.', '--nonsense'])).stderr, /unknown option/);
@@ -156,7 +156,7 @@ test('merge combines manifests and refuses conflicting hashes', async () => {
   const m3 = path.join(clash, 'm3.json');
   await runCli(['generate', clash, '-m', m3]);
   const conflict = await runCli(['merge', m1, m3, '-m', path.join(left, 'nope.json')]);
-  assert.equal(conflict.code, 3);
+  assert.equal(conflict.code, 1, 'both manifests are readable; the merge itself cannot proceed');
   assert.match(conflict.stderr, /conflict/);
 });
 
