@@ -160,6 +160,37 @@ test('merge combines manifests and refuses conflicting hashes', async () => {
   assert.match(conflict.stderr, /conflict/);
 });
 
+test('merge refuses to overwrite an existing manifest, the default name included', async () => {
+  const left = await makeTree({ 'a.txt': 'alpha' });
+  const right = await makeTree({ 'b.txt': 'beta' });
+  const m1 = path.join(left, 'm1.json');
+  const m2 = path.join(right, 'm2.json');
+  await runCli(['generate', left, '-m', m1]);
+  await runCli(['generate', right, '-m', m2]);
+
+  // The default output is `sumcheck.json` in the working directory. That name
+  // used to be the one target exempt from the overwrite guard, so a plain
+  // `sumcheck merge a.json b.json` silently replaced a manifest that was
+  // somebody's only record of what the tree used to look like.
+  const cwd = process.cwd();
+  process.chdir(left);
+  try {
+    const target = path.join(left, 'sumcheck.json');
+    await fs.writeFile(target, 'precious');
+
+    const blocked = await runCli(['merge', m1, m2]);
+    assert.equal(blocked.code, 1, blocked.stderr);
+    assert.match(blocked.stderr, /already exists/);
+    assert.equal(await fs.readFile(target, 'utf8'), 'precious', 'the existing manifest must survive');
+
+    const forced = await runCli(['merge', m1, m2, '--force']);
+    assert.equal(forced.code, 0, forced.stderr);
+    assert.match(await fs.readFile(target, 'utf8'), /"tool": "sumcheck"/);
+  } finally {
+    process.chdir(cwd);
+  }
+});
+
 test('an excluded directory is neither hashed nor reported as extra', async () => {
   const root = await makeTree({ 'a.txt': 'a', 'node_modules/pkg/index.js': 'noise' });
   const manifest = path.join(root, 'm.json');

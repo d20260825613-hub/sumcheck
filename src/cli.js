@@ -405,13 +405,15 @@ async function commandMerge(argv) {
     format: values.format ?? FORMAT_JSON,
   });
 
-  if (values.manifest !== DEFAULT_MANIFEST) {
-    try {
-      await fsp.access(values.manifest);
-      if (!values.force) return fail(`${values.manifest} already exists; pass --force to overwrite it`);
-    } catch {
-      /* fine */
-    }
+  // The same guard as `generate`: never destroy an existing manifest without
+  // --force. This used to be skipped when the output was the default name,
+  // which made `sumcheck.json` — the one file everybody actually writes — the
+  // only unprotected target.
+  try {
+    await fsp.access(values.manifest);
+    if (!values.force) return fail(`${values.manifest} already exists; pass --force to overwrite it`);
+  } catch {
+    /* does not exist, which is what we want */
   }
   await fsp.writeFile(values.manifest, text);
   process.stdout.write(`${bold('wrote')} ${values.manifest}\n  ${entries.length} files merged from ${positional.length} manifest(s)\n`);

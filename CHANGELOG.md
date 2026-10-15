@@ -4,7 +4,7 @@ All notable changes to this project are documented in this file.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/)
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.2.0] - 2026-10-15
 
 ### Changed
 
@@ -17,6 +17,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- `sumcheck merge` skipped the overwrite guard whenever the output was the
+  default `sumcheck.json`: the check was written as "only when the name is not
+  the default", which made the default name the one target with no protection.
+  A plain `sumcheck merge a.json b.json` therefore replaced an existing manifest
+  in place, and a manifest is often the only record of what a tree used to look
+  like. `merge` now runs the same `access` + `--force` check as `generate`, for
+  every output name. The regression test drives the default name from a
+  temporary working directory, since that is exactly the case the old code
+  exempted.
 - `installCliHandlers` was called only from the direct-run block in
   `src/cli.js`, so it never fired for the installed `sumcheck` command: the bin
   entry imports the module rather than running it. `bin/sumcheck.js` now installs
@@ -45,5 +54,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - 32 tests, most of them about the distinctions between the five outcomes, path
   escapes, malformed input and conflicting merges.
 
-[Unreleased]: https://github.com/d20260825613-hub/sumcheck/compare/v0.1.0...HEAD
+[0.2.0]: https://github.com/d20260825613-hub/sumcheck/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/d20260825613-hub/sumcheck/releases/tag/v0.1.0
